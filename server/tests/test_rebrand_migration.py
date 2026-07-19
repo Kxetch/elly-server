@@ -14,12 +14,29 @@ when something old already exists.
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from elly_server import config
 from elly_server.domain import auth, crypto
 
 
+@pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason=(
+        "config.get_data_dir()'s KX->Elly directory migration is deliberately "
+        "macOS-only (see its own docstring/comment: 'KX' was a personal Mac "
+        "app that predates the Linux/Windows installers, so it never existed "
+        "anywhere else) -- on any other platform get_data_dir() uses a "
+        "completely different base directory (e.g. ~/.local/share on Linux) "
+        "and never runs this migration at all, so these path assertions "
+        "(hardcoded to macOS's Library/Application Support layout) don't "
+        "apply there. Found failing on a real Linux CI runner before this "
+        "guard existed -- always run the real suite in CI, on the actual "
+        "target platform, not just locally on a Mac, before trusting green."
+    ),
+)
 class TestDataDirMigration:
     def test_migrates_an_existing_kx_directory_to_elly(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("ELLY_DATA_DIR", raising=False)
