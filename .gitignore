@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Local data safety net -- the real DB lives in
+# ~/Library/Application Support/Elly, never in the repo, but just in
+# case ELLY_DATA_DIR ever points somewhere under the repo by accident:
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# OS / editor cruft
+.DS_Store
+.vscode/
+.idea/

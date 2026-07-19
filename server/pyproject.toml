@@ -1,0 +1,45 @@
+[project]
+name = "elly-server"
+version = "0.1.0"
+description = "Local backend for Elly -- an ADHD-aware notebook/diary/calendar companion"
+readme = "README.md"
+authors = [
+    { name = "sketchsz", email = "ciocaneduardm@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.18.5",
+    "apscheduler>=3.11",
+    "cryptography>=43.0",
+    "fastapi>=0.115",
+    "httpx>=0.27",
+    "keyring>=25.5",
+    "mcp[cli]<2",
+    "openai>=1.75",
+    "python-dotenv>=1.2.2",
+    "python-telegram-bot>=21.6",
+    "slowapi>=0.1.9",
+    "sqlalchemy>=2.0.51",
+    "uvicorn[standard]>=0.34",
+]
+
+[project.scripts]
+elly-mcp = "elly_server.mcp_server.server:main"
+elly-api = "elly_server.api.app:main"
+elly-telegram = "elly_server.telegram_bot.bot:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "mypy>=1.13",
+    "ruff>=0.8",
+    "pillow>=11.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["uv_build>=0.11.26,<0.12.0"]
+build-backend = "uv_build"
