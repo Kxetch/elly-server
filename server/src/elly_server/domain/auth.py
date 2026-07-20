@@ -110,3 +110,29 @@ def verify_token(candidate: str | None) -> bool:
         return False
     token, _ = get_or_create_token()
     return hmac.compare_digest(candidate, token)
+
+
+def rotate_token() -> str:
+    """Generate a brand-new token and replace the stored one, returning
+    the new value (shown to the user exactly once by the caller).
+
+    Exists so a token that leaked (screen-share, pasted terminal
+    screenshot, a pre-hardening world-readable log file) can be
+    invalidated without the previous only remedy: a full --reset that
+    destroys all data -- a wildly disproportionate response to a leaked
+    credential. The old token stops working the moment this returns;
+    every previously-authenticated browser must paste in the new one.
+
+    Storage mirrors get_or_create_token() exactly: OS keyring first,
+    0600 file fallback -- and writes to whichever store is actually in
+    use, so a keyring-backed install rotates in the keyring and a
+    Docker/headless install rotates in the file.
+    """
+    new_token = secrets.token_hex(32)
+    try:
+        keyring.set_password(_SERVICE_NAME, _TOKEN_KEY, new_token)
+        return new_token
+    except keyring.errors.KeyringError:
+        pass  # no usable OS keyring backend -- fall through to file storage
+    _write_token_file(new_token)
+    return new_token

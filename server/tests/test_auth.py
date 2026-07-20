@@ -49,3 +49,37 @@ def test_verify_token_rejects_missing_or_empty(tmp_path, monkeypatch: pytest.Mon
     monkeypatch.setattr(auth, "get_data_dir", lambda: tmp_path)
     assert auth.verify_token(None) is False
     assert auth.verify_token("") is False
+
+
+def test_rotate_token_invalidates_the_old_one(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The point of rotation: containing a leaked token without the
+    previous only remedy (a full data-destroying --reset)."""
+    monkeypatch.setattr(auth, "get_data_dir", lambda: tmp_path)
+    old_token, _ = auth.get_or_create_token()
+
+    new_token = auth.rotate_token()
+
+    assert new_token != old_token
+    assert len(new_token) == 64
+    assert auth.verify_token(new_token) is True
+    assert auth.verify_token(old_token) is False  # old token dead immediately
+
+
+def test_rotate_token_persists_across_reads(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(auth, "get_data_dir", lambda: tmp_path)
+    auth.get_or_create_token()
+    new_token = auth.rotate_token()
+
+    # A fresh read (what every subsequent request's verify_token does)
+    # must return the rotated value, not regenerate or resurrect the old.
+    stored, was_created = auth.get_or_create_token()
+    assert stored == new_token
+    assert was_created is False
+
+
+def test_rotated_token_file_keeps_restrictive_permissions(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(auth, "get_data_dir", lambda: tmp_path)
+    auth.get_or_create_token()
+    auth.rotate_token()
+    mode = stat.S_IMODE((tmp_path / ".elly_token").stat().st_mode)
+    assert mode == 0o600

@@ -55,3 +55,30 @@ def test_settings_route_requires_auth() -> None:
     resp = client.get("/api/settings", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     assert "llm_provider" in resp.json()
+
+
+def test_rotate_token_requires_auth_and_swaps_the_token() -> None:
+    """POST /settings/rotate-token: requires the CURRENT token to call,
+    returns the new one exactly once, and the old token stops working
+    on the very next request."""
+    resp = client.post("/api/settings/rotate-token")
+    assert resp.status_code == 401  # no token, no rotation
+
+    old_token, _ = get_or_create_token()
+    resp = client.post(
+        "/api/settings/rotate-token", headers={"Authorization": f"Bearer {old_token}"}
+    )
+    assert resp.status_code == 200
+    new_token = resp.json()["token"]
+    assert new_token != old_token
+    assert len(new_token) == 64
+
+    # Old token: dead. New token: works.
+    assert (
+        client.get("/api/today", headers={"Authorization": f"Bearer {old_token}"}).status_code
+        == 401
+    )
+    assert (
+        client.get("/api/today", headers={"Authorization": f"Bearer {new_token}"}).status_code
+        == 200
+    )

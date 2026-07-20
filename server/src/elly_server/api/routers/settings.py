@@ -48,3 +48,20 @@ def clear_openai_key(session: Session = Depends(get_db)) -> dict[str, bool]:
     OPENAI_API_KEY in server/.env, if set."""
     settings_domain.set_openai_api_key(session, None)
     return {"configured": False}
+
+
+@router.post("/rotate-token")
+def rotate_access_token() -> dict[str, str]:
+    """Generate a new access token, invalidating the current one.
+
+    The caller must already hold the current token to reach this route
+    (require_auth) -- rotating is for containing a *leaked* token, and
+    an attacker who already has the token can't be stopped by any
+    endpoint anyway (they'd export data directly instead). The response
+    is the ONLY time the new value is ever returned; the frontend is
+    responsible for storing it and telling the user. From this moment,
+    every other browser/session with the old token is logged out.
+    """
+    from elly_server.domain.auth import rotate_token
+
+    return {"token": rotate_token()}
