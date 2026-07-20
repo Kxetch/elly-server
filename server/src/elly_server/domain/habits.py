@@ -271,6 +271,19 @@ def list_all_habit_statuses(session: Session) -> list[dict[str, Any]]:
     return [_status_for_habit(session, h) for h in session.scalars(stmt).all()]
 
 
+def list_all_habit_logs(session: Session) -> list[dict[str, Any]]:
+    """Every individual habit completion, raw (id, habit_id, logged_at,
+    note) -- list_all_habit_statuses()/list_archived_habits() above only
+    ever return *aggregate* stats (current_streak, total_completions,
+    etc.) computed at read time, never the underlying log rows. A
+    backup built from just those aggregates couldn't actually restore
+    habit history -- streaks would reset to zero and past completions
+    would be gone -- so domain/export.py's import_all_data() needs this
+    instead. See PLAN.md/ASSESSMENT.md batch 4 for why this was added."""
+    stmt = select(HabitLog).order_by(HabitLog.id)
+    return [model_to_dict(h) for h in session.scalars(stmt).all()]
+
+
 def list_archived_habits(session: Session) -> list[dict[str, Any]]:
     """Archived (is_active=False) habits, most recently created first.
 

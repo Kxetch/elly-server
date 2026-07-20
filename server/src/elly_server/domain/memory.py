@@ -54,6 +54,18 @@ def recall(session: Session, query: str, limit: int = 5) -> list[dict[str, Any]]
     return [model_to_dict(m) for m in matches]
 
 
+def list_all_memories(session: Session) -> list[dict[str, Any]]:
+    """Every memory, raw (id, content, type, importance, timestamps,
+    access_count) -- unlike get_profile_summary() below, which groups
+    memories by type into plain content strings for display, this
+    keeps everything needed to faithfully restore a memory later (see
+    domain/export.py's import_all_data). get_profile_summary()'s
+    grouped-strings shape loses importance/created_at/access_count,
+    which is fine for a chat-facing summary but not for a backup."""
+    stmt = select(Memory).order_by(Memory.id)
+    return [model_to_dict(m) for m in session.scalars(stmt).all()]
+
+
 def get_profile_summary(session: Session) -> dict[str, list[str]]:
     stmt = select(Memory).order_by(Memory.importance.desc())
     grouped: dict[str, list[str]] = {}
