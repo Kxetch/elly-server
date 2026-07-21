@@ -31,12 +31,11 @@ allow a reasonable amount of time for a response.
 Elly is designed around one specific, deliberate setup: **a single user,
 running the app on their own machine, with the dashboard reachable
 only from that same machine** (`127.0.0.1` -- never a LAN or public
-address). Remote interaction
-happens through a separate, purpose-built channel (a Telegram bot,
-landing in Sprint 2), not by exposing the dashboard itself to the
-network. Everything below is designed against that specific model --
-it does not (yet) cover multi-user, multi-device-on-a-LAN, or
-public-internet deployments.
+address). Remote interaction happens through a separate, purpose-built
+channel (an optional Telegram bot), not by exposing the dashboard
+itself to the network. Everything below is designed against that
+specific model -- it does not (yet) cover multi-user,
+multi-device-on-a-LAN, or public-internet deployments.
 
 ### What's protected today
 
@@ -89,6 +88,45 @@ public-internet deployments.
   before being written to disk -- see "Encryption at rest, explained in
   full" below for exactly what's covered, what isn't, and why this is
   field-level rather than whole-database encryption.
+- **SQLite hardening.** `PRAGMA secure_delete=ON` on every connection --
+  deleted content is actually overwritten on disk, not just unlinked
+  from an index while sitting recoverable in the database's free-list
+  until reused (verified end-to-end: a marker written into a field,
+  deleted, and checkpointed is confirmed gone from the raw file
+  afterward). `PRAGMA foreign_keys=ON` -- referential integrity is
+  actually enforced, not just declared in the schema and hoped for. The
+  database file and its `-wal`/`-shm` shadow files are `0600`-
+  permissioned (previously `644` via the OS's default umask -- readable
+  by any other local account on a shared/multi-user machine).
+- **Server log hygiene and a real token-rotation path.** The log file
+  is created `0600` from the start (also previously `644` via umask),
+  truncated to the last 500 lines on every install/update so it can't
+  grow unbounded, and the first-run access-token banner is scrubbed out
+  of it right after being shown once. If a token is ever suspected
+  leaked, `POST /api/settings/rotate-token` (a "Generate new token"
+  button in Settings) invalidates the old one immediately, everywhere --
+  previously the only remedy for a leaked token was `--reset`, which
+  also destroys all of your data along with it.
+- **`GET /api/export` is rate-limited** (3/minute). It's the single
+  highest-value target route in the app -- everything you've written,
+  in one authenticated response -- so this is pure defense-in-depth
+  against a leaked token being used for fast, silent bulk exfiltration;
+  a rate-limited attacker is more likely to be noticed.
+- **The service worker never caches notes, chat, remembered facts, or
+  export responses.** `NetworkOnly`, not just a short TTL -- these are
+  exactly the fields encrypted at rest server-side (see below), so the
+  browser-side cache policy is deliberately kept consistent with the
+  server-side encryption policy rather than quietly caching the
+  decrypted plaintext response in the browser's own Cache Storage.
+- **A real backup-and-restore path.** `GET /api/export` (a "Export my
+  data" button in Settings) is the complete, portable backup -- see
+  "Backup and restore, explained in full" below for why a raw copy of
+  `elly.db` is not an equivalent substitute. `POST /api/export/import`
+  ("Restore from backup..." in Settings) restores one.
+- **CI includes a non-blocking dependency vulnerability audit**
+  (`pip-audit` against the locked backend dependency tree) on every
+  push/PR to this repo, alongside `ruff` and the full pytest suite --
+  visible in the Actions tab, not just claimed here.
 
 ### What's explicitly not protected yet (tracked, not forgotten)
 
@@ -185,6 +223,37 @@ next boot -- verified end-to-end against a scratch database seeded with
 pre-migration plaintext rows, confirming both that the ciphertext on
 disk never contains the original plaintext and that the ORM correctly
 decrypts it back afterward.
+
+### Backup and restore, explained in full
+
+**Why the JSON export, not a raw copy of `elly.db`:** the encryption
+key that protects diary entries, remembered facts, chat history, etc.
+(see "Encryption at rest" above) never leaves the machine it was
+generated on -- by design, since a recovery backdoor for that key would
+itself be a vulnerability. Copying `elly.db` alone to a new machine
+copies ciphertext with no way to read it there. `GET /api/export`
+decrypts everything through the same domain functions the app itself
+uses and returns it as plain JSON -- this, not the raw database file,
+is the actual portable backup. Settings says as much directly next to
+the Export button.
+
+**What's in it:** notes/diary entries, tasks, habits (including
+archived ones and their full completion history, not just current
+streak stats), calendar events, budget entries, and remembered facts
+(with their original importance/timestamps, not just grouped into
+content strings for display). Deliberately excluded: the access token,
+the encryption key, Telegram pairing state, and chat conversation
+history -- an export moves your *content*, not the security material
+that protects it or your AI conversation transcripts.
+
+**Restoring it (`POST /api/export/import`):** deliberately v1-simple --
+only ever replaces into a database with nothing in it yet (a fresh
+install or reinstall), never merges into one that already has content.
+If the database isn't empty, the import is refused with a clear message
+rather than risking silent duplicates. Original ids and timestamps are
+preserved, so cross-references (a calendar event generated by a habit,
+say) stay correct and restored history reads as it actually happened,
+not as if everything happened at restore time.
 
 ### Docker networking, explained in full (Sprint 3, done)
 
@@ -287,3 +356,25 @@ sends plain HTTP requests to whatever Ollama URL is configured (default
 `http://localhost:11434`), the same one already used for chat. No new
 network egress beyond what Ollama-as-LLM-provider already implied; see
 `domain/ollama_admin.py`.
+
+### Your OpenAI key: two storage paths, two different guarantees
+
+There are two ways to give Elly an OpenAI API key, and they are **not**
+equally protected at rest -- worth being explicit about since nothing
+in the UI currently warns you which one you're choosing.
+
+- **Set via Settings** (stored in `AppSettings.openai_api_key`): this
+  column uses the same field-level encryption (`EncryptedText`, Fernet)
+  as `Note.body`/`Memory.content`/the Telegram bot token above -- never
+  plaintext at rest, same "if the encryption key is lost, this is
+  unrecoverable" caveat as everything else encrypted. `GET
+  /api/settings` never returns the raw value.
+- **Set via `.env`** (`OPENAI_API_KEY`): plaintext by nature -- that's
+  simply what a `.env` file is, read directly into the process
+  environment on startup with no encryption layer involved at all.
+  `.env` itself is gitignored and (see "What's protected today" above)
+  the whole app is loopback-only, so this isn't an *exposed* secret,
+  but it is a plaintext-on-disk one, unlike the Settings path.
+
+If you'd rather your key never sit in plaintext on disk at all, prefer
+setting it from Settings over `.env`.

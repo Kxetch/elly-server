@@ -32,3 +32,16 @@ jobs:
 
       - name: Pytest
         run: uv run pytest -v
+
+      # Non-blocking (continue-on-error): flags known vulnerabilities in
+      # the resolved dependency tree without failing the build over
+      # them -- a real CVE in a transitive dependency shouldn't block
+      # every unrelated PR, but it should be visible. pip-audit doesn't
+      # read uv.lock directly, so this exports it to the portable
+      # requirements.txt format pip-audit understands first.
+      - name: Export locked dependencies
+        run: uv export --format requirements.txt --no-hashes -o requirements-audit.txt
+
+      - name: Dependency vulnerability audit (non-blocking)
+        continue-on-error: true
+        run: uv tool run pip-audit -r requirements-audit.txt --skip-editable
